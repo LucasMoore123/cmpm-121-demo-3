@@ -4,7 +4,6 @@ import leaflet from "leaflet";
 import luck from "./luck";
 import "./leafletWorkaround";
 
-
 const MERRILL_CLASSROOM = leaflet.latLng({
     lat: 36.9995,
     lng: - 122.0533
@@ -43,44 +42,66 @@ sensorButton.addEventListener("click", () => {
     });
 });
 
-let points = 0;
-const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
-statusPanel.innerHTML = "No points yet...";
+// Initialize the player's inventory with 3 coins
+let playerInventory: number = 3;
 
-function makePit(i: number, j: number) {
+// Create an object to store cache information including coin values
+const cacheData: Record<string, { coins: number }> = {};
+
+// Change makePit into makeCache, which will hold our coins
+function makeCache(i: number, j: number) {
+    const cacheKey = `${i},${j}`;
+
+    if (cacheData[cacheKey] === undefined) {
+        // Initialize cache data with 3 coins if not already set
+        cacheData[cacheKey] = { coins: 3 };
+    }
+
+    // calculate leaflet bounds based on merrill classroom
     const bounds = leaflet.latLngBounds([
         [MERRILL_CLASSROOM.lat + i * TILE_DEGREES,
         MERRILL_CLASSROOM.lng + j * TILE_DEGREES],
         [MERRILL_CLASSROOM.lat + (i + 1) * TILE_DEGREES,
         MERRILL_CLASSROOM.lng + (j + 1) * TILE_DEGREES],
     ]);
-
-    const pit = leaflet.rectangle(bounds) as leaflet.Layer;
-
-
-
-    pit.bindPopup(() => {
-        let value = Math.floor(luck([i, j, "initialValue"].toString()) * 100);
-        const container = document.createElement("div");
+    const cache: leaflet.Layer = leaflet.rectangle(bounds);
+    cache.bindPopup(() => {
+        const coins: number = cacheData[cacheKey].coins;
+        const container: HTMLDivElement = document.createElement("div");
         container.innerHTML = `
-                <div>There is a pit here at "${i},${j}". It has value <span id="value">${value}</span>.</div>
-                <button id="poke">poke</button>`;
-        const poke = container.querySelector<HTMLButtonElement>("#poke")!;
-        poke.addEventListener("click", () => {
-            value--;
-            container.querySelector<HTMLSpanElement>("#value")!.innerHTML = value.toString();
-            points++;
-            statusPanel.innerHTML = `${points} points accumulated`;
+            <div>This is a cache at "${i},${j}".</div>
+            <div>It contains ${coins} coins.</div>
+            <div>Your Inventory: ${playerInventory} coins.</div>
+            <button id="collect">Collect Coins</button>
+            <button id="deposit">Deposit Coins</button>
+        `;
+        const collectButton: HTMLButtonElement = container.querySelector("#collect")!;
+        collectButton.addEventListener("click", () => {
+            if (playerInventory < 3 && coins > 0) {
+                playerInventory += 1; // Collect one coin
+                cacheData[cacheKey].coins -= 1; // Remove one coin from the cache
+                container.querySelectorAll("div")[1].textContent = `It contains ${cacheData[cacheKey].coins} coins.`; // ChatGPT Prompt: How can I edit specific parts of a container's innerHTML using typescript?
+                container.querySelectorAll("div")[2].textContent = `Your Inventory: ${playerInventory} coins.`;
+            }
+        });
+        const depositButton: HTMLButtonElement = container.querySelector("#deposit")!;
+        depositButton.addEventListener("click", () => {
+            if (playerInventory > 0) {
+                playerInventory -= 1; // Deposit one coin
+                cacheData[cacheKey].coins += 1; // Add one coin to the cache
+                container.querySelectorAll("div")[1].textContent = `It contains ${cacheData[cacheKey].coins} coins.`;
+                container.querySelectorAll("div")[2].textContent = `Your Inventory: ${playerInventory} coins.`;
+            }
         });
         return container;
     });
-    pit.addTo(map);
+    cache.addTo(map);
 }
 
 for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
     for (let j = - NEIGHBORHOOD_SIZE; j < NEIGHBORHOOD_SIZE; j++) {
         if (luck([i, j].toString()) < PIT_SPAWN_PROBABILITY) {
-            makePit(i, j);
+            makeCache(i, j);
         }
     }
 }
