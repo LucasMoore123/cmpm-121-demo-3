@@ -6,7 +6,7 @@ import "./leafletWorkaround";
 
 const MERRILL_CLASSROOM = leaflet.latLng({
     lat: 36.9995,
-    lng: - 122.0533
+    lng: -122.0533
 });
 
 const GAMEPLAY_ZOOM_LEVEL = 19;
@@ -42,60 +42,114 @@ sensorButton.addEventListener("click", () => {
     });
 });
 
-// Initialize the player's inventory with 3 coins
-let playerInventory: number = 3;
+// Interface to manage coin IDs
+interface Coin {
+    id: number;
+    cacheKey: string;
+}
+
+// Array to store player coins
+let playerInventory: Coin[] = [];
 
 // Create an object to store cache information including coin values
-const cacheData: Record<string, { coins: number }> = {};
+const cacheData: Record<string, { coins: Coin[] }> = {};
 
-// Change makePit into makeCache, which will hold our coins
+// Create a map to keep track of known tiles
+const knownTiles: Set<string> = new Set();
+
+// Change makePit into makeCache
 function makeCache(i: number, j: number) {
-    const cacheKey = `${i},${j}`;
-
-    if (cacheData[cacheKey] === undefined) {
-        // Initialize cache data with 3 coins if not already set
-        cacheData[cacheKey] = { coins: 3 };
+    const globalI = Math.round((MERRILL_CLASSROOM.lat + i * TILE_DEGREES) * 1e4);
+    const globalJ = Math.round((MERRILL_CLASSROOM.lng + j * TILE_DEGREES) * 1e4);
+    const cacheKey = `${globalI}:${globalJ}`;
+    // Check if the tile already exists
+    if (!knownTiles.has(cacheKey)) {
+        knownTiles.add(cacheKey);
+        if (cacheData[cacheKey] === undefined) {
+            // Initialize cache data with 3 coins if not already set
+            cacheData[cacheKey] = { coins: [] };
+            for (let k = 1; k <= 3; k++) {
+                cacheData[cacheKey].coins.push({ id: k, cacheKey: cacheKey });
+            }
+        }
+        // calculate leaflet bounds based on merrill classroom
+        const bounds = leaflet.latLngBounds([
+            [MERRILL_CLASSROOM.lat + i * TILE_DEGREES, MERRILL_CLASSROOM.lng + j * TILE_DEGREES],
+            [MERRILL_CLASSROOM.lat + (i + 1) * TILE_DEGREES, MERRILL_CLASSROOM.lng + (j + 1) * TILE_DEGREES],
+        ]);
+        const cache: leaflet.Layer = leaflet.rectangle(bounds);
+        // Creates popup to handle coin logic
+        cache.bindPopup(() => {
+            const coinList = cacheData[cacheKey].coins.map((coin) => `<li>${coin.cacheKey}#${coin.id} <button class="collect">Collect</button></li>`).join('');
+            const container: HTMLDivElement = document.createElement("div");
+            container.innerHTML = `
+                <div>This is a cache at "${globalI}:${globalJ}".</div>
+                <div>Inventory:</div>
+                <ul>${coinList}</ul>
+                <div>Your Inventory: ${playerInventory.length.toString()} coins.</div>
+                <button id="deposit">Deposit Most Recent Coin</button>
+            `;
+            const collectButtons = container.querySelectorAll(".collect");
+            collectButtons.forEach((button, index) => {
+                const coinId = index + 1;
+                button.setAttribute("data-id", coinId.toString());
+                button.addEventListener("click", () => collectCoin(cacheKey, coinId));
+            });
+            const depositButton: HTMLButtonElement = container.querySelector("#deposit")!;
+            depositButton.addEventListener("click", () => depositMostRecentCoin(cacheKey));
+            return container;
+        });
+        cache.addTo(map);
     }
+}
 
-    // calculate leaflet bounds based on merrill classroom
-    const bounds = leaflet.latLngBounds([
-        [MERRILL_CLASSROOM.lat + i * TILE_DEGREES,
-        MERRILL_CLASSROOM.lng + j * TILE_DEGREES],
-        [MERRILL_CLASSROOM.lat + (i + 1) * TILE_DEGREES,
-        MERRILL_CLASSROOM.lng + (j + 1) * TILE_DEGREES],
-    ]);
-    const cache: leaflet.Layer = leaflet.rectangle(bounds);
-    cache.bindPopup(() => {
-        const coins: number = cacheData[cacheKey].coins;
-        const container: HTMLDivElement = document.createElement("div");
-        container.innerHTML = `
-            <div>This is a cache at "${i},${j}".</div>
-            <div>It contains ${coins} coins.</div>
-            <div>Your Inventory: ${playerInventory} coins.</div>
-            <button id="collect">Collect Coins</button>
-            <button id="deposit">Deposit Coins</button>
-        `;
-        const collectButton: HTMLButtonElement = container.querySelector("#collect")!;
-        collectButton.addEventListener("click", () => {
-            if (playerInventory < 3 && coins > 0) {
-                playerInventory += 1; // Collect one coin
-                cacheData[cacheKey].coins -= 1; // Remove one coin from the cache
-                container.querySelectorAll("div")[1].textContent = `It contains ${cacheData[cacheKey].coins} coins.`; // ChatGPT Prompt: How can I edit specific parts of a container's innerHTML using typescript?
-                container.querySelectorAll("div")[2].textContent = `Your Inventory: ${playerInventory} coins.`;
-            }
-        });
-        const depositButton: HTMLButtonElement = container.querySelector("#deposit")!;
-        depositButton.addEventListener("click", () => {
-            if (playerInventory > 0) {
-                playerInventory -= 1; // Deposit one coin
-                cacheData[cacheKey].coins += 1; // Add one coin to the cache
-                container.querySelectorAll("div")[1].textContent = `It contains ${cacheData[cacheKey].coins} coins.`;
-                container.querySelectorAll("div")[2].textContent = `Your Inventory: ${playerInventory} coins.`;
-            }
-        });
-        return container;
+// Function used to take a coin from a cache and enter it into player inventory
+function collectCoin(cacheKey: string, coinId: number) {
+    console.log('Attempting to collect coin with ID:', coinId);
+    console.log('Current coins:', cacheData[cacheKey].coins);
+    if (playerInventory.length < 3) {
+        const coinIndex = cacheData[cacheKey].coins.findIndex((coin) => coin.id === coinId);
+        console.log('Coin index found:', coinIndex);
+        if (coinIndex !== -1) {
+            const collectedCoin: Coin = cacheData[cacheKey].coins.splice(coinIndex, 1)[0];
+            console.log('Collected coin:', collectedCoin);
+            playerInventory.push(collectedCoin);
+            console.log('Updated player inventory:', playerInventory);
+            updatePopupContent(cacheKey);
+        }
+    }
+}
+
+// Function used to deposit your most recent coin into a cache
+function depositMostRecentCoin(cacheKey: string) {
+    if (playerInventory.length > 0) {
+        const mostRecentCoin = playerInventory.pop();
+        if (mostRecentCoin) {
+            cacheData[cacheKey].coins.push(mostRecentCoin);
+            updatePopupContent(cacheKey);
+        }
+    }
+}
+
+// Function used to handle changing of popup content after collecting or depositing coins.
+function updatePopupContent(cacheKey: string) {
+    map.eachLayer((layer: leaflet.Layer) => {
+        if (layer instanceof leaflet.Rectangle && layer.getBounds().toBBoxString() === cacheKey) {
+            const inventoryCount = playerInventory.length;
+            const newContainer: HTMLDivElement = document.createElement("div");
+            newContainer.innerHTML = `
+                <div>This is a cache at "${cacheKey}".</div>
+                <div>Inventory: ${generateCoinList(cacheKey)}</div>
+                <div>Your Inventory: ${inventoryCount} coins.</div>
+                <button id="deposit">Deposit Most Recent Coin</button>
+            `;
+        }
     });
-    cache.addTo(map);
+}
+
+// Creates a button for collecting each coin
+function generateCoinList(cacheKey: string): string {
+    return cacheData[cacheKey].coins.map((coin) => `<li>${coin.cacheKey}#${coin.id} <button class="collect">Collect</button></li>`).join('');
 }
 
 for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
