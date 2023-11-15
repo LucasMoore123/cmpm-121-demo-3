@@ -42,6 +42,113 @@ sensorButton.addEventListener("click", () => {
     });
 });
 
+// ChatGPT prompt: What is the best way to add a key property to a leaflet in typescript?
+class CustomRectangle extends leaflet.Rectangle {
+    cacheKey: string;
+    constructor(bounds: leaflet.LatLngBoundsExpression, options?: leaflet.PathOptions) {
+        super(bounds, options);
+        this.cacheKey = '';
+    }
+}
+
+// Handle Player Movement
+let xOffset = 0;
+let yOffset = 0;
+const northButton = document.querySelector("#north")!;
+const southButton = document.querySelector("#south")!;
+const eastButton = document.querySelector("#east")!;
+const westButton = document.querySelector("#west")!;
+northButton.addEventListener("click", () => {
+    movePlayer("north");
+});
+southButton.addEventListener("click", () => {
+    movePlayer("south");
+});
+eastButton.addEventListener("click", () => {
+    movePlayer("east");
+});
+westButton.addEventListener("click", () => {
+    movePlayer("west");
+});
+
+function movePlayer(direction: string) {
+    const movementStep = 0.0001; // Cell-granularity for movement
+    let newLat = playerMarker.getLatLng().lat;
+    let newLng = playerMarker.getLatLng().lng;
+    // Update player's location based on the direction clicked
+    switch (direction) {
+        case "north":
+            newLat += movementStep;
+            xOffset += 1;
+            break;
+        case "south":
+            newLat -= movementStep;
+            xOffset -= 1;
+            break;
+        case "east":
+            newLng += movementStep;
+            yOffset += 1;
+            break;
+        case "west":
+            newLng -= movementStep;
+            yOffset -= 1;
+            break;
+        default:
+            break;
+    }
+    const newPlayerPosition = leaflet.latLng(newLat, newLng);
+    playerMarker.setLatLng(newPlayerPosition);
+    map.setView(playerMarker.getLatLng());
+    generateCachesAroundPlayer();
+}
+
+interface HiddenCache {
+    layer: leaflet.Layer;
+    cacheKey: string;
+}
+
+const hiddenCaches: HiddenCache[] = [];
+
+function hideAllCaches() {
+    map.eachLayer((layer: leaflet.Layer) => {
+        if (layer instanceof leaflet.Rectangle) {
+            const cacheKey = (layer as any).cacheKey;
+            hiddenCaches.push({ layer, cacheKey });
+            map.removeLayer(layer);
+        }
+    });
+    console.log("Hidden caches: ", hiddenCaches.map(cache => cache.cacheKey));
+}
+
+function unhideCache(cacheKey: string) {
+    const index = hiddenCaches.findIndex(cache => cache.cacheKey === cacheKey);
+    if (index !== -1) {
+        const { layer } = hiddenCaches.splice(index, 1)[0];
+        map.addLayer(layer);
+        console.log(`Cache with cacheKey '${cacheKey}' has been unhidden.`);
+    } else {
+        console.log(`Cache with cacheKey '${cacheKey}' not found in hiddenCaches.`);
+    }
+}
+
+function generateCachesAroundPlayer() {
+    // Remove all caches from area
+    hideAllCaches();
+    const range = 8;
+    // Calculate the range boundaries based on player's position on the map
+    const startX = -range + xOffset;
+    const endX = range + xOffset;
+    const startY = -range + yOffset;
+    const endY = range + yOffset;
+    for (let i = startX; i < endX; i++) {
+        for (let j = startY; j < endY; j++) {
+            if (luck([i, j].toString()) < PIT_SPAWN_PROBABILITY) {
+                makeCache(i, j); // Added functionality to makeCache that unhides hidden caches if they already exist
+            }
+        }
+    }
+}
+
 // Interface to manage coin IDs
 interface Coin {
     id: number;
@@ -77,7 +184,8 @@ function makeCache(i: number, j: number) {
             [MERRILL_CLASSROOM.lat + i * TILE_DEGREES, MERRILL_CLASSROOM.lng + j * TILE_DEGREES],
             [MERRILL_CLASSROOM.lat + (i + 1) * TILE_DEGREES, MERRILL_CLASSROOM.lng + (j + 1) * TILE_DEGREES],
         ]);
-        const cache: leaflet.Layer = leaflet.rectangle(bounds);
+        const cache = new CustomRectangle(bounds);
+        cache.cacheKey = cacheKey;
         // Creates popup to handle coin logic
         cache.bindPopup(() => {
             const coinList = cacheData[cacheKey].coins.map((coin) => `<li>${coin.cacheKey}#${coin.id} <button class="collect">Collect</button></li>`).join('');
@@ -100,6 +208,8 @@ function makeCache(i: number, j: number) {
             return container;
         });
         cache.addTo(map);
+    } else {
+        unhideCache(cacheKey);
     }
 }
 
@@ -153,7 +263,7 @@ function generateCoinList(cacheKey: string): string {
 }
 
 for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
-    for (let j = - NEIGHBORHOOD_SIZE; j < NEIGHBORHOOD_SIZE; j++) {
+    for (let j = -NEIGHBORHOOD_SIZE; j < NEIGHBORHOOD_SIZE; j++) {
         if (luck([i, j].toString()) < PIT_SPAWN_PROBABILITY) {
             makeCache(i, j);
         }
