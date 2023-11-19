@@ -34,12 +34,22 @@ const playerMarker = leaflet.marker(MERRILL_CLASSROOM);
 playerMarker.bindTooltip("That's you!");
 playerMarker.addTo(map);
 
-const sensorButton = document.querySelector("#sensor")!;
+const sensorButton = document.querySelector("#sensor") as HTMLButtonElement;
+let watchId: number | null = null;
 sensorButton.addEventListener("click", () => {
-    navigator.geolocation.watchPosition((position) => {
-        playerMarker.setLatLng(leaflet.latLng(position.coords.latitude, position.coords.longitude));
-        map.setView(playerMarker.getLatLng());
-    });
+    if (!watchId) {
+        watchId = navigator.geolocation.watchPosition(
+            (position) => {
+                playerMarker.setLatLng(leaflet.latLng(position.coords.latitude, position.coords.longitude));
+                map.setView(playerMarker.getLatLng());
+            }
+        );
+        sensorButton.textContent = "Disable Location Tracking";
+    } else {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+        sensorButton.textContent = "🌐";
+    }
 });
 
 // ChatGPT prompt: What is the best way to add a key property to a leaflet in typescript?
@@ -100,6 +110,9 @@ function movePlayer(direction: string) {
     playerMarker.setLatLng(newPlayerPosition);
     map.setView(playerMarker.getLatLng());
     generateCachesAroundPlayer();
+    const currentPosition = playerMarker.getLatLng();
+    playerMovementHistory.push(currentPosition);
+    drawMovementHistory();
 }
 
 interface HiddenCache {
@@ -147,6 +160,15 @@ function generateCachesAroundPlayer() {
             }
         }
     }
+}
+
+// Initiate player movement history
+const playerMovementHistory: leaflet.LatLng[] = [playerMarker.getLatLng()];
+const movementPolyline = leaflet.polyline(playerMovementHistory, { color: 'red' });
+movementPolyline.addTo(map);
+// update polyline as player moves
+function drawMovementHistory() {
+    movementPolyline.setLatLngs(playerMovementHistory);
 }
 
 // Interface to manage coin IDs
@@ -242,17 +264,22 @@ function depositMostRecentCoin(cacheKey: string) {
 }
 
 // Function used to handle changing of popup content after collecting or depositing coins.
+// ChatGPT prompt: How can I reduce redundancy and optimize my functions?
 function updatePopupContent(cacheKey: string) {
     map.eachLayer((layer: leaflet.Layer) => {
         if (layer instanceof leaflet.Rectangle && layer.getBounds().toBBoxString() === cacheKey) {
-            const inventoryCount = playerInventory.length;
-            const newContainer: HTMLDivElement = document.createElement("div");
-            newContainer.innerHTML = `
-                <div>This is a cache at "${cacheKey}".</div>
-                <div>Inventory: ${generateCoinList(cacheKey)}</div>
-                <div>Your Inventory: ${inventoryCount} coins.</div>
-                <button id="deposit">Deposit Most Recent Coin</button>
-            `;
+            const cache: CustomRectangle = layer as CustomRectangle;
+            const popup = cache.getPopup();
+            if (popup) {
+                const inventoryCount = playerInventory.length;
+                const updatedContent = `
+                    <div>This is a cache at "${cacheKey}".</div>
+                    <div>Inventory: ${generateCoinList(cacheKey)}</div>
+                    <div>Your Inventory: ${inventoryCount} coins.</div>
+                    <button id="deposit">Deposit Most Recent Coin</button>
+                `;
+                popup.setContent(updatedContent);
+            }
         }
     });
 }
